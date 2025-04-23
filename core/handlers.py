@@ -47,39 +47,46 @@ class DifyAiCardBotHandler(ChatbotHandler):
         card_instance = AICardReplier(self.dingtalk_client, incoming_message)
         # 先投放卡片
         card_instance_id = card_instance.create_and_send_card(card_template_id, card_data, callback_type="STREAM")
-        # 再流式更新卡片
-        try:
-            # full_content_value = await aio_call_with_stream(
-            full_content_value = self._call_dify_with_stream(
-                incoming_message,
-                lambda content_value: card_instance.streaming(
+        # 快速返回 ack，避免钉钉超时重试
+        # 钉钉允许在返回 ack 后继续更新卡片
+        import asyncio
+
+        async def update_card():
+            try:
+                full_content_value = self._call_dify_with_stream(
+                    incoming_message,
+                    lambda content_value: card_instance.streaming(
+                        card_instance_id,
+                        content_key=content_key,
+                        content_value=content_value,
+                        append=False,
+                        finished=False,
+                        failed=False,
+                    ),
+                )
+                card_instance.streaming(
                     card_instance_id,
                     content_key=content_key,
-                    content_value=content_value,
+                    content_value=full_content_value,
+                    append=False,
+                    finished=True,
+                    failed=False,
+                )
+            except Exception as e:
+                logger.exception(e)
+                card_instance.streaming(
+                    card_instance_id,
+                    content_key=content_key,
+                    content_value=f"出现了异常: {e}",
                     append=False,
                     finished=False,
-                    failed=False,
-                ),
-            )
-            card_instance.streaming(
-                card_instance_id,
-                content_key=content_key,
-                content_value=full_content_value,
-                append=False,
-                finished=True,
-                failed=False,
-            )
-        except Exception as e:
-            logger.exception(e)
-            card_instance.streaming(
-                card_instance_id,
-                content_key=content_key,
-                content_value=f"出现了异常: {e}",
-                append=False,
-                finished=False,
-                failed=True,
-            )
+                    failed=True,
+                )
 
+        # 启动异步任务更新卡片
+        asyncio.create_task(update_card())
+
+        # 立即返回 ack
         return AckMessage.STATUS_OK, "OK"
 
     def _call_dify_with_stream(self, incoming_message: ChatbotMessage, callback: Callable[[str], None]):
