@@ -1,3 +1,5 @@
+name : dify
+
 services:
   dod-app:
     image: zfanswer/dify-on-dingtalk:latest
@@ -8,3 +10,6 @@ services:
       - .env
     volumes:
       - ./.bots.yaml:/app/.bots.yaml
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
